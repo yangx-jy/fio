@@ -361,16 +361,6 @@ Darwin)
   if test -z "$cpu" && test "$(sysctl -n hw.optional.x86_64)" = "1"; then
     cpu="x86_64"
   fi
-  # Avoid configure feature detection of features provided by weak symbols
-cat > $TMPC <<EOF
-int main(void)
-{
-  return 0;
-}
-EOF
-  if compile_prog "" "-Werror=partial-availability" "error on weak symbols"; then
-    CONFIGURE_CFLAGS="$CONFIGURE_CFLAGS -Werror=partial-availability"
-  fi
   ;;
 SunOS)
   # `uname -m` returns i86pc even on an x86_64 box, so default based on isainfo
