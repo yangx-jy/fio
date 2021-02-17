@@ -20,7 +20,13 @@
 /* client side implementation */
 
 struct client_data {
-	int XXX;
+	/* the messaging buffer (sending and receiving) */
+	char *io_us_msgs;
+
+	/* resources for the messaging buffer */
+	uint32_t msg_num;
+	uint32_t msg_curr;
+	struct rpma_mr_local *msg_mr;
 };
 
 static int client_init(struct thread_data *td)
