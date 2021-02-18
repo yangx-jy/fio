@@ -17,6 +17,9 @@
 
 #include <libpmem.h>
 
+#define MAX_MSG_SIZE (512)
+#define IO_U_BUF_LEN (2 * MAX_MSG_SIZE)
+
 /* client side implementation */
 
 struct client_data {
@@ -37,8 +40,26 @@ static int client_init(struct thread_data *td)
 
 static int client_post_init(struct thread_data *td)
 {
-	/* XXX */
-	return 0;
+	struct librpma_fio_client_data *ccd = td->io_ops_data;
+	struct client_data *cd = ccd->client_data;
+	unsigned int io_us_msgs_size;
+	int ret;
+
+	/* message buffers initialization and registration */
+	io_us_msgs_size = cd->msg_num * IO_U_BUF_LEN;
+	if ((ret = posix_memalign((void **)&cd->io_us_msgs, page_size,
+			io_us_msgs_size))) {
+		td_verror(td, ret, "posix_memalign");
+		return ret;
+	}
+	if ((ret = rpma_mr_reg(ccd->peer, cd->io_us_msgs, io_us_msgs_size,
+			RPMA_MR_USAGE_SEND | RPMA_MR_USAGE_RECV,
+			&cd->msg_mr))) {
+		librpma_td_verror(td, ret, "rpma_mr_reg");
+		return ret;
+	}
+
+	return librpma_fio_client_post_init(td);
 }
 
 static int client_get_file_size(struct thread_data *td,
