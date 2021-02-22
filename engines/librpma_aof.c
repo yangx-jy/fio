@@ -134,7 +134,17 @@ FIO_STATIC struct ioengine_ops ioengine_client = {
 /* server side implementation */
 
 struct server_data {
-	int XXX;
+	/* aligned td->orig_buffer - the messaging buffer (sending and receiving) */
+	char *orig_buffer_aligned;
+
+	/* resources for the messaging buffer */
+	struct rpma_mr_local *msg_mr;
+
+	uint32_t msg_sqe_available; /* # of free SQ slots */
+
+	/* in-memory queues */
+	struct rpma_completion *msgs_queued;
+	uint32_t msg_queued_nr;
 };
 
 static int server_init(struct thread_data *td)
