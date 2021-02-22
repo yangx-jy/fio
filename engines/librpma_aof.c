@@ -62,13 +62,6 @@ static int client_post_init(struct thread_data *td)
 	return librpma_fio_client_post_init(td);
 }
 
-static int client_get_file_size(struct thread_data *td,
-		struct fio_file *f)
-{
-	/* XXX */
-	return 0;
-}
-
 static enum fio_q_status client_queue(struct thread_data *td,
 		struct io_u *io_u)
 {
@@ -124,7 +117,7 @@ FIO_STATIC struct ioengine_ops ioengine_client = {
 	.version		= FIO_IOOPS_VERSION,
 	.init			= client_init,
 	.post_init		= client_post_init,
-	.get_file_size		= client_get_file_size,
+	.get_file_size		= librpma_fio_client_get_file_size,
 	.open_file		= librpma_fio_file_nop,
 	.queue			= client_queue,
 	.commit			= client_commit,
