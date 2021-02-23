@@ -281,13 +281,95 @@ struct server_data {
 
 static int server_init(struct thread_data *td)
 {
-	/* XXX */
+	struct librpma_fio_server_data *csd;
+	struct server_data *sd;
+	int ret = -1;
+
+	if ((ret = librpma_fio_server_init(td)))
+		return ret;
+
+	csd = td->io_ops_data;
+
+	/* allocate server's data */
+	sd = calloc(1, sizeof(*sd));
+	if (sd == NULL) {
+		td_verror(td, errno, "calloc");
+		goto err_server_cleanup;
+	}
+
+	/* allocate in-memory queue */
+	sd->msgs_queued = calloc(td->o.iodepth, sizeof(*sd->msgs_queued));
+	if (sd->msgs_queued == NULL) {
+		td_verror(td, errno, "calloc");
+		goto err_free_sd;
+	}
+
+	/*
+	 * Assure a single io_u buffer can store both SEND and RECV messages and
+	 * an io_us buffer allocation is page-size-aligned which is required
+	 * to register for RDMA. User-provided values are intentionally ignored.
+	 */
+	td->o.max_bs[DDIR_READ] = IO_U_BUF_LEN;
+	td->o.mem_align = page_size;
+
+	csd->server_data = sd;
+
 	return 0;
+
+err_free_sd:
+	free(sd);
+
+err_server_cleanup:
+	librpma_fio_server_cleanup(td);
+
+	return -1;
 }
 
 static int server_post_init(struct thread_data *td)
 {
-	/* XXX */
+	struct librpma_fio_server_data *csd = td->io_ops_data;
+	struct server_data *sd = csd->server_data;
+	size_t io_us_size;
+	size_t io_u_buflen;
+	int ret;
+
+	/*
+	 * td->orig_buffer is not aligned. The engine requires aligned io_us
+	 * so FIO alignes up the address using the formula below.
+	 */
+	sd->orig_buffer_aligned = PTR_ALIGN(td->orig_buffer, page_mask) +
+			td->o.mem_align;
+
+	/*
+	 * XXX
+	 * Each io_u message buffer contains recv and send messages.
+	 * Aligning each of those buffers may potentially give
+	 * some performance benefits.
+	 */
+	io_u_buflen = td_max_bs(td);
+
+	/* check whether io_u buffer is big enough */
+	if (io_u_buflen < IO_U_BUF_LEN) {
+		log_err(
+			"blocksize too small to accommodate assumed maximal request/response pair size (%" PRIu64 " < %d)\n",
+			io_u_buflen, IO_U_BUF_LEN);
+		return -1;
+	}
+
+	/*
+	 * td->orig_buffer_size beside the space really consumed by io_us
+	 * has paddings which can be omitted for the memory registration.
+	 */
+	io_us_size = (unsigned long long)io_u_buflen *
+			(unsigned long long)td->o.iodepth;
+
+	if ((ret = rpma_mr_reg(csd->peer, sd->orig_buffer_aligned, io_us_size,
+			RPMA_MR_USAGE_SEND | RPMA_MR_USAGE_RECV,
+			&sd->msg_mr))) {
+		librpma_td_verror(td, ret, "rpma_mr_reg");
+		return -1;
+	}
+
 	return 0;
 }
 
