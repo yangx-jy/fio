@@ -265,8 +265,48 @@ struct server_data {
 
 static int server_init(struct thread_data *td)
 {
-	/* XXX */
+	struct librpma_fio_server_data *csd;
+	struct server_data *sd;
+	int ret = -1;
+
+	if ((ret = librpma_fio_server_init(td)))
+		return ret;
+
+	csd = td->io_ops_data;
+
+	/* allocate server's data */
+	sd = calloc(1, sizeof(*sd));
+	if (sd == NULL) {
+		td_verror(td, errno, "calloc");
+		goto err_server_cleanup;
+	}
+
+	/* allocate in-memory queue */
+	sd->msgs_queued = calloc(td->o.iodepth, sizeof(*sd->msgs_queued));
+	if (sd->msgs_queued == NULL) {
+		td_verror(td, errno, "calloc");
+		goto err_free_sd;
+	}
+
+	/*
+	 * Assure a single io_u buffer can store both SEND and RECV messages and
+	 * an io_us buffer allocation is page-size-aligned which is required
+	 * to register for RDMA. User-provided values are intentionally ignored.
+	 */
+	td->o.max_bs[DDIR_READ] = IO_U_BUF_LEN;
+	td->o.mem_align = page_size;
+
+	csd->server_data = sd;
+
 	return 0;
+
+err_free_sd:
+	free(sd);
+
+err_server_cleanup:
+	librpma_fio_server_cleanup(td);
+
+	return -1;
 }
 
 static int server_post_init(struct thread_data *td)
