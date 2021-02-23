@@ -458,12 +458,6 @@ static int server_open_file(struct thread_data *td, struct fio_file *f)
 	return 0;
 }
 
-static int server_close_file(struct thread_data *td, struct fio_file *f)
-{
-	/* XXX */
-	return 0;
-}
-
 static int server_qe_process(struct thread_data *td,
 		struct rpma_completion *cmpl)
 {
@@ -642,7 +636,7 @@ FIO_STATIC struct ioengine_ops ioengine_server = {
 	.init			= server_init,
 	.post_init		= server_post_init,
 	.open_file		= server_open_file,
-	.close_file		= server_close_file,
+	.close_file		= librpma_fio_server_close_file,
 	.queue			= server_queue,
 	.invalidate		= librpma_fio_file_nop,
 	.cleanup		= server_cleanup,
