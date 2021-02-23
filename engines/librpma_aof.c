@@ -311,7 +311,49 @@ err_server_cleanup:
 
 static int server_post_init(struct thread_data *td)
 {
-	/* XXX */
+	struct librpma_fio_server_data *csd = td->io_ops_data;
+	struct server_data *sd = csd->server_data;
+	size_t io_us_size;
+	size_t io_u_buflen;
+	int ret;
+
+	/*
+	 * td->orig_buffer is not aligned. The engine requires aligned io_us
+	 * so FIO alignes up the address using the formula below.
+	 */
+	sd->orig_buffer_aligned = PTR_ALIGN(td->orig_buffer, page_mask) +
+			td->o.mem_align;
+
+	/*
+	 * XXX
+	 * Each io_u message buffer contains recv and send messages.
+	 * Aligning each of those buffers may potentially give
+	 * some performance benefits.
+	 */
+	io_u_buflen = td_max_bs(td);
+
+	/* check whether io_u buffer is big enough */
+	if (io_u_buflen < IO_U_BUF_LEN) {
+		log_err(
+			"blocksize too small to accommodate assumed maximal request/response pair size (%" PRIu64 " < %d)\n",
+			io_u_buflen, IO_U_BUF_LEN);
+		return -1;
+	}
+
+	/*
+	 * td->orig_buffer_size beside the space really consumed by io_us
+	 * has paddings which can be omitted for the memory registration.
+	 */
+	io_us_size = (unsigned long long)io_u_buflen *
+			(unsigned long long)td->o.iodepth;
+
+	if ((ret = rpma_mr_reg(csd->peer, sd->orig_buffer_aligned, io_us_size,
+			RPMA_MR_USAGE_SEND | RPMA_MR_USAGE_RECV,
+			&sd->msg_mr))) {
+		librpma_td_verror(td, ret, "rpma_mr_reg");
+		return -1;
+	}
+
 	return 0;
 }
 
