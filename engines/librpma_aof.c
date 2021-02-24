@@ -79,8 +79,24 @@ static int client_init(struct thread_data *td)
 		return -1;
 	}
 
-	write_num = 1; /* WRITE */
-	cd->msg_num = 1; /* AOF update */
+	/*
+	 * Calculate the required number of WRITEs and UPDATEes.
+	 *
+	 * Note: Each update is a request (SEND) and response (RECV) pair.
+	 */
+	if (td->o.sync_io) {
+		write_num = 1; /* WRITE */
+		cd->msg_num = 1; /* AOF update */
+	} else {
+		write_num = td->o.iodepth; /* WRITE * N */
+		/*
+		 * AOF update * B where:
+		 * - B == ceil(iodepth / iodepth_batch)
+		 *   which is the number of batches for N writes
+		 */
+		cd->msg_num = LIBRPMA_FIO_CEIL(td->o.iodepth,
+				td->o.iodepth_batch);
+	}
 
 	/* create a connection configuration object */
 	if ((ret = rpma_conn_cfg_new(&cfg))) {
