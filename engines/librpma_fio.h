@@ -26,22 +26,82 @@
 #define librpma_td_verror(td, err, func) \
 	td_vmsg((td), (err), rpma_err_2str(err), (func))
 
+/* XXX log_info mixes with the JSON output */
+#define librpma_td_log(td, msg) \
+	if ((td)->thread_number == 1) { \
+		log_err(msg); \
+	}
+
 /* ceil(a / b) = (a + b - 1) / b */
 #define LIBRPMA_FIO_CEIL(a, b) (((a) + (b) - 1) / (b))
 
-/* common option structure for server and client */
+#define LIBRPMA_AOF_MODE_LNAME \
+	"Chosen implementation of appending to the persistent AOF structure on the remote system"
+#define LIBRPMA_AOF_MODE_HELP \
+	"Appending to the persistent AOF structure on the remote system may be implemented in two possible ways: software-based or hardware-based."
+#define LIBRPMA_AOF_MODE_SW_HELP \
+	"software-based (using SEND/RECV) commission of an append"
+#define LIBRPMA_AOF_MODE_HW_HELP \
+	"hardware-based (using FLUSH/ATOMIC_WRITE/FLUSH) execution of an append"
+
+enum librpma_aof_mode {
+	LIBRPMA_AOF_MODE_SW = 0,
+	LIBRPMA_AOF_MODE_HW = 1,
+};
+
+/* option structure for both server and client */
 struct librpma_fio_options_values {
 	/*
 	 * FIO considers .off1 == 0 absent so the first meaningful field has to
 	 * have padding ahead of it.
 	 */
 	void *pad;
+
+	/* common */
+
 	char *server_ip;
 	/* base server listening port */
 	char *port;
 	/* Direct Write to PMem is possible */
 	unsigned int direct_write_to_pmem;
+
+	/* aof-specific */
+
+	enum librpma_aof_mode aof_mode; /* chosen implementation of AOF */
 };
+
+#define LIBRPMA_FIO_OPTIONS_COMMON \
+	{ \
+		.name	= "serverip", \
+		.lname	= "rpma_server_ip", \
+		.type	= FIO_OPT_STR_STORE, \
+		.off1	= offsetof(struct librpma_fio_options_values, server_ip), \
+		.help	= "IP address the server is listening on", \
+		.def	= "", \
+		.category = FIO_OPT_C_ENGINE, \
+		.group	= FIO_OPT_G_LIBRPMA, \
+	}, \
+	{ \
+		.name	= "port", \
+		.lname	= "rpma_server port", \
+		.type	= FIO_OPT_STR_STORE, \
+		.off1	= offsetof(struct librpma_fio_options_values, port), \
+		.help	= "port the server is listening on", \
+		.def	= "7204", \
+		.category = FIO_OPT_C_ENGINE, \
+		.group	= FIO_OPT_G_LIBRPMA, \
+	}, \
+	{ \
+		.name	= "direct_write_to_pmem", \
+		.lname	= "Direct Write to PMem (via RDMA) from the remote host is possible", \
+		.type	= FIO_OPT_BOOL, \
+		.off1	= offsetof(struct librpma_fio_options_values, \
+					direct_write_to_pmem), \
+		.help	= "Set to true ONLY when Direct Write to PMem from the remote host is possible (https://pmem.io/rpma/documentation/basic-direct-write-to-pmem.html)", \
+		.def	= "", \
+		.category = FIO_OPT_C_ENGINE, \
+		.group	= FIO_OPT_G_LIBRPMA, \
+	}
 
 extern struct fio_option librpma_fio_options[];
 
