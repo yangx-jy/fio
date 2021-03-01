@@ -69,7 +69,7 @@ struct fio_option librpma_aof_options[] = {
 #define IO_U_NEXT_BUF_OFF_CLIENT(cd) \
 	(IO_U_BUF_LEN * ((cd->msg_curr++) % cd->msg_num))
 
-struct client_data {
+struct client_data_sw {
 	/* the messaging buffer (sending and receiving) */
 	char *io_us_msgs;
 
@@ -132,7 +132,7 @@ static int client_sw_get_io_u_index(struct rpma_completion *cmpl,
 static int client_sw_init(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd;
-	struct client_data *cd;
+	struct client_data_sw *cd;
 	uint32_t write_num;
 	struct rpma_conn_cfg *cfg = NULL;
 	int ret;
@@ -312,7 +312,7 @@ err_cfg_delete:
 static int client_sw_post_init(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd = td->io_ops_data;
-	struct client_data *cd = ccd->client_data;
+	struct client_data_sw *cd = ccd->client_data;
 	unsigned int io_us_msgs_size;
 	int ret;
 
@@ -349,7 +349,7 @@ static int client_get_file_size(struct thread_data *td, struct fio_file *f)
 static void client_sw_cleanup(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd = td->io_ops_data;
-	struct client_data *cd;
+	struct client_data_sw *cd;
 	size_t update_req_size;
 	size_t io_u_buf_off;
 	size_t send_offset;
@@ -412,7 +412,7 @@ static int client_sw_io_append(struct thread_data *td,
 		unsigned long long int len)
 {
 	struct librpma_fio_client_data *ccd = td->io_ops_data;
-	struct client_data *cd = ccd->client_data;
+	struct client_data_sw *cd = ccd->client_data;
 	size_t io_u_buf_off = IO_U_NEXT_BUF_OFF_CLIENT(cd);
 	size_t send_offset = io_u_buf_off + SEND_OFFSET;
 	size_t recv_offset = io_u_buf_off + RECV_OFFSET;
