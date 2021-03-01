@@ -236,10 +236,75 @@ static int client_hw_get_io_u_index(struct rpma_completion *cmpl,
 
 static int client_hw_init(struct thread_data *td)
 {
-	/* XXX */
+	struct librpma_fio_client_data *ccd;
+	struct rpma_conn_cfg *cfg = NULL;
+	uint32_t write_num;
+	uint32_t update_num;
+	int ret;
 
-	(void) client_hw_io_append;
-	(void) client_hw_get_io_u_index;
+	/*
+	 * Calculate the required number of WRITEs and AOF updates.
+	 *
+	 * Note: each AOF update is a sequence of FLUSH + ATOMIC_WRITE + FLUSH.
+	 */
+	if (td->o.sync_io) {
+		write_num = 1; /* WRITE */
+		update_num = 1; /* AOF update */
+	} else {
+		write_num = td->o.iodepth; /* WRITE * N */
+		/*
+		 * AOF update * B where:
+		 * - B == ceil(iodepth / iodepth_batch)
+		 *   which is the number of batches for N writes
+		 */
+		update_num = LIBRPMA_FIO_CEIL(td->o.iodepth,
+				td->o.iodepth_batch);
+	}
+
+	/* create a connection configuration object */
+	if ((ret = rpma_conn_cfg_new(&cfg))) {
+		librpma_td_verror(td, ret, "rpma_conn_cfg_new");
+		return -1;
+	}
+
+	/*
+	 * Calculate the required queue sizes where:
+	 * - the send queue (SQ) has to be big enough to accommodate
+	 *   all io_us (WRITEs) and all AOF updates (FLUSH + ATOMIC_WRITE + FLUSH)
+	 * - the receive queue (RQ) is not used
+	 * - the completion queue (CQ) has to be big enough to accommodate all
+	 *   success and error completions (sq_size)
+	 */
+	if ((ret = rpma_conn_cfg_set_sq_size(cfg, write_num + 3 * update_num))) {
+		librpma_td_verror(td, ret, "rpma_conn_cfg_set_sq_size");
+		goto err_cfg_delete;
+	}
+	if ((ret = rpma_conn_cfg_set_rq_size(cfg, 0))) {
+		librpma_td_verror(td, ret, "rpma_conn_cfg_set_rq_size");
+		goto err_cfg_delete;
+	}
+	if ((ret = rpma_conn_cfg_set_cq_size(cfg, write_num + 3 * update_num))) {
+		librpma_td_verror(td, ret, "rpma_conn_cfg_set_cq_size");
+		goto err_cfg_delete;
+	}
+
+	if (librpma_fio_client_init(td, cfg))
+		goto err_cfg_delete;
+
+	ccd = td->io_ops_data;
+
+	if ((ret = rpma_conn_cfg_delete(&cfg))) {
+		librpma_td_verror(td, ret, "rpma_conn_cfg_delete");
+		/* non fatal error - continue */
+	}
+
+	ccd->flush = client_hw_io_append;
+	ccd->get_io_u_index = client_hw_get_io_u_index;
+
+	return 0;
+
+err_cfg_delete:
+	(void) rpma_conn_cfg_delete(&cfg);
 
 	return -1;
 }
