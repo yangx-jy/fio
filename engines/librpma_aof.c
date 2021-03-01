@@ -34,12 +34,34 @@ static const AOFUpdateRequest Update_req_last = AOF_UPDATE_REQUEST__INIT;
 #define IS_NOT_THE_LAST_MESSAGE(update_req) \
 	(memcmp(update_req, &Update_req_last, sizeof(Update_req_last)) != 0)
 
-static int client_io_send(struct thread_data *td,
-	struct io_u *first_io_u, struct io_u *last_io_u,
-	unsigned long long int len);
-
-static int client_get_io_u_index(struct rpma_completion *cmpl,
-	unsigned int *io_u_index);
+struct fio_option librpma_aof_options[] = {
+	LIBRPMA_FIO_OPTIONS_COMMON,
+	{
+		.name	= "mode",
+		.lname	= LIBRPMA_AOF_MODE_LNAME,
+		.type	= FIO_OPT_STR,
+		.off1	= offsetof(struct librpma_fio_options_values, aof_mode),
+		.help	= LIBRPMA_AOF_MODE_HELP,
+		.def	= "",
+		.posval = {
+			{
+				.ival = "sw",
+				.oval = LIBRPMA_AOF_MODE_SW,
+				.help = LIBRPMA_AOF_MODE_SW_HELP,
+			},
+			{
+				.ival = "hw",
+				.oval = LIBRPMA_AOF_MODE_HW,
+				.help = LIBRPMA_AOF_MODE_HW_HELP,
+			},
+		},
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_LIBRPMA,
+	},
+	{
+		.name	= NULL,
+	},
+};
 
 /* client side implementation */
 
@@ -57,13 +79,16 @@ struct client_data {
 	struct rpma_mr_local *msg_mr;
 };
 
+static int client_sw_init(struct thread_data *td);
+static int client_sw_post_init(struct thread_data *td);
+static void client_sw_cleanup(struct thread_data *td);
+
+static int client_hw_init(struct thread_data *td);
+
 static int client_init(struct thread_data *td)
 {
-	struct librpma_fio_client_data *ccd;
-	struct client_data *cd;
-	uint32_t write_num;
-	struct rpma_conn_cfg *cfg = NULL;
-	int ret;
+	struct librpma_fio_options_values *o = td->eo;
+	int ret = -1;
 
 	/* only sequential writes are allowed in AOF */
 	if (td_random(td) || td_read(td) || td_trim(td)) {
@@ -71,6 +96,46 @@ static int client_init(struct thread_data *td)
 			"Not supported mode (only sequential writes are allowed in AOF).");
 		return -1;
 	}
+
+	librpma_td_log(td, LIBRPMA_AOF_MODE_HELP "\n");
+
+	if (o->aof_mode == LIBRPMA_AOF_MODE_SW) {
+		if ((ret = client_sw_init(td)))
+			return ret;
+
+		td->io_ops->post_init = client_sw_post_init;
+		td->io_ops->cleanup = client_sw_cleanup;
+
+		librpma_td_log(td,
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_SW_HELP);
+	} else { /* LIBRPMA_AOF_MODE_HW */
+		if ((ret = client_hw_init(td)))
+			return ret;
+
+		td->io_ops->post_init = librpma_fio_client_post_init;
+		td->io_ops->cleanup = librpma_fio_client_cleanup;
+
+		librpma_td_log(td,
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP);
+	}
+
+	return 0;
+}
+
+static int client_sw_io_append(struct thread_data *td,
+	struct io_u *first_io_u, struct io_u *last_io_u,
+	unsigned long long int len);
+
+static int client_sw_get_io_u_index(struct rpma_completion *cmpl,
+	unsigned int *io_u_index);
+
+static int client_sw_init(struct thread_data *td)
+{
+	struct librpma_fio_client_data *ccd;
+	struct client_data *cd;
+	uint32_t write_num;
+	struct rpma_conn_cfg *cfg = NULL;
+	int ret;
 
 	/* allocate client's data */
 	cd = calloc(1, sizeof(*cd));
@@ -144,8 +209,8 @@ static int client_init(struct thread_data *td)
 		/* non fatal error - continue */
 	}
 
-	ccd->flush = client_io_send;
-	ccd->get_io_u_index = client_get_io_u_index;
+	ccd->flush = client_sw_io_append;
+	ccd->get_io_u_index = client_sw_get_io_u_index;
 	ccd->client_data = cd;
 
 	return 0;
@@ -162,7 +227,24 @@ err_free_cd:
 	return -1;
 }
 
-static int client_post_init(struct thread_data *td)
+static int client_hw_io_append(struct thread_data *td,
+	struct io_u *first_io_u, struct io_u *last_io_u,
+	unsigned long long int len);
+
+static int client_hw_get_io_u_index(struct rpma_completion *cmpl,
+	unsigned int *io_u_index);
+
+static int client_hw_init(struct thread_data *td)
+{
+	/* XXX */
+
+	(void) client_hw_io_append;
+	(void) client_hw_get_io_u_index;
+
+	return -1;
+}
+
+static int client_sw_post_init(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd = td->io_ops_data;
 	struct client_data *cd = ccd->client_data;
@@ -199,7 +281,7 @@ static int client_get_file_size(struct thread_data *td, struct fio_file *f)
 	return 0;
 }
 
-static void client_cleanup(struct thread_data *td)
+static void client_sw_cleanup(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd = td->io_ops_data;
 	struct client_data *cd;
@@ -260,7 +342,7 @@ static void client_cleanup(struct thread_data *td)
 	librpma_fio_client_cleanup(td);
 }
 
-static int client_io_send(struct thread_data *td,
+static int client_sw_io_append(struct thread_data *td,
 		struct io_u *first_io_u, struct io_u *last_io_u,
 		unsigned long long int len)
 {
@@ -308,7 +390,7 @@ static int client_io_send(struct thread_data *td,
 	return 0;
 }
 
-static int client_get_io_u_index(struct rpma_completion *cmpl,
+static int client_sw_get_io_u_index(struct rpma_completion *cmpl,
 		unsigned int *io_u_index)
 {
 	AOFUpdateResponse *update_resp;
@@ -331,11 +413,32 @@ static int client_get_io_u_index(struct rpma_completion *cmpl,
 	return 1;
 }
 
+static int client_hw_io_append(struct thread_data *td,
+		struct io_u *first_io_u, struct io_u *last_io_u,
+		unsigned long long int len)
+{
+	/*
+	 * rpma_flush()
+	 * rpma_atomic_write()
+	 * rpma_flush() + completion
+	 */
+
+	return -1;
+}
+
+static int client_hw_get_io_u_index(struct rpma_completion *cmpl,
+		unsigned int *io_u_index)
+{
+	/* XXX */
+
+	return -1;
+}
+
 FIO_STATIC struct ioengine_ops ioengine_client = {
 	.name			= "librpma_aof_client",
 	.version		= FIO_IOOPS_VERSION,
 	.init			= client_init,
-	.post_init		= client_post_init,
+	.post_init		= NULL, /* see the (*) notice below */
 	.get_file_size		= client_get_file_size,
 	.open_file		= librpma_fio_file_nop,
 	.queue			= librpma_fio_client_queue,
@@ -344,44 +447,20 @@ FIO_STATIC struct ioengine_ops ioengine_client = {
 	.event			= librpma_fio_client_event,
 	.errdetails		= librpma_fio_client_errdetails,
 	.close_file		= librpma_fio_file_nop,
-	.cleanup		= client_cleanup,
+	.cleanup		= NULL, /* see the (*) notice below */
 	.flags			= FIO_DISKLESSIO,
-	.options		= librpma_fio_options,
+	.options		= librpma_aof_options,
 	.option_struct_size	= sizeof(struct librpma_fio_options_values),
+
+	/*
+	 * (*) the actual implementation is picked in the client_init hook
+	 *     according to the chosen aof_mode value
+	 */
 };
 
 /* server side implementation */
 
 #define IO_U_BUFF_OFF_SERVER(i) (i * IO_U_BUF_LEN)
-
-struct fio_option librpma_aof_options[] = {
-	LIBRPMA_FIO_OPTIONS_COMMON,
-	{
-		.name	= "mode",
-		.lname	= LIBRPMA_AOF_MODE_LNAME,
-		.type	= FIO_OPT_STR,
-		.off1	= offsetof(struct librpma_fio_options_values, aof_mode),
-		.help	= LIBRPMA_AOF_MODE_HELP,
-		.def	= "",
-		.posval = {
-			{
-				.ival = "sw",
-				.oval = LIBRPMA_AOF_MODE_SW,
-				.help = LIBRPMA_AOF_MODE_SW_HELP,
-			},
-			{
-				.ival = "hw",
-				.oval = LIBRPMA_AOF_MODE_HW,
-				.help = LIBRPMA_AOF_MODE_HW_HELP,
-			},
-		},
-		.category = FIO_OPT_C_ENGINE,
-		.group	= FIO_OPT_G_LIBRPMA,
-	},
-	{
-		.name	= NULL,
-	},
-};
 
 struct server_data {
 	/* aligned td->orig_buffer - the messaging buffer (sending and receiving) */
