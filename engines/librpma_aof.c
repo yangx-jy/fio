@@ -44,7 +44,6 @@ struct fio_option librpma_aof_options[] = {
 		.type	= FIO_OPT_STR,
 		.off1	= offsetof(struct librpma_fio_options_values, aof_mode),
 		.help	= LIBRPMA_AOF_MODE_HELP,
-		.def	= "",
 		.posval = {
 			{
 				.ival = "sw",
