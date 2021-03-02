@@ -79,6 +79,14 @@ struct client_data_sw {
 	struct rpma_mr_local *msg_mr;
 };
 
+struct client_data_hw {
+	/* AOF pointer */
+	uint64_t *aof_ptr;
+
+	/* AOF pointer base address memory registration */
+	struct rpma_mr_local *aof_ptr_mr;
+};
+
 static int client_sw_init(struct thread_data *td);
 static int client_sw_post_init(struct thread_data *td);
 static void client_sw_cleanup(struct thread_data *td);
