@@ -94,6 +94,7 @@ static int client_sw_post_init(struct thread_data *td);
 static void client_sw_cleanup(struct thread_data *td);
 
 static int client_hw_init(struct thread_data *td);
+static void client_hw_cleanup(struct thread_data *td);
 
 static int client_init(struct thread_data *td)
 {
@@ -123,7 +124,7 @@ static int client_init(struct thread_data *td)
 			return ret;
 
 		td->io_ops->post_init = librpma_fio_client_post_init;
-		td->io_ops->cleanup = librpma_fio_client_cleanup;
+		td->io_ops->cleanup = client_hw_cleanup;
 
 		librpma_td_log(td,
 			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP);
@@ -248,9 +249,17 @@ static int client_hw_init(struct thread_data *td)
 {
 	struct librpma_fio_client_data *ccd;
 	struct rpma_conn_cfg *cfg = NULL;
+	struct client_data_hw *cd;
 	uint32_t write_num;
 	uint32_t update_num;
 	int ret;
+
+	/* allocate client's data */
+	cd = calloc(1, sizeof(*cd));
+	if (cd == NULL) {
+		td_verror(td, errno, "calloc");
+		return -1;
+	}
 
 	/*
 	 * Calculate the required number of WRITEs and AOF updates.
@@ -274,7 +283,7 @@ static int client_hw_init(struct thread_data *td)
 	/* create a connection configuration object */
 	if ((ret = rpma_conn_cfg_new(&cfg))) {
 		librpma_td_verror(td, ret, "rpma_conn_cfg_new");
-		return -1;
+		goto err_free_cd;
 	}
 
 	/*
@@ -303,6 +312,19 @@ static int client_hw_init(struct thread_data *td)
 
 	ccd = td->io_ops_data;
 
+	/* AOF pointer buffer initialization */
+	if ((ret = posix_memalign((void **)&cd->aof_ptr, page_size, AOF_PTR_SIZE))) {
+		td_verror(td, ret, "posix_memalign");
+		goto err_cleanup_common;
+	}
+
+	/* AOF pointer buffer registration */
+	if ((ret = rpma_mr_reg(ccd->peer, cd->aof_ptr, AOF_PTR_SIZE,
+			RPMA_MR_USAGE_WRITE_SRC, &cd->aof_ptr_mr))) {
+		librpma_td_verror(td, ret, "rpma_mr_reg");
+		goto err_free_aof_ptr;
+	}
+
 	if ((ret = rpma_conn_cfg_delete(&cfg))) {
 		librpma_td_verror(td, ret, "rpma_conn_cfg_delete");
 		/* non fatal error - continue */
@@ -310,11 +332,21 @@ static int client_hw_init(struct thread_data *td)
 
 	ccd->flush = client_hw_io_append;
 	ccd->get_io_u_index = client_hw_get_io_u_index;
+	ccd->client_data = cd;
 
 	return 0;
 
+err_free_aof_ptr:
+	free(cd->aof_ptr);
+
+err_cleanup_common:
+	librpma_fio_client_cleanup(td);
+
 err_cfg_delete:
 	(void) rpma_conn_cfg_delete(&cfg);
+
+err_free_cd:
+	free(cd);
 
 	return -1;
 }
@@ -486,6 +518,33 @@ static int client_sw_get_io_u_index(struct rpma_completion *cmpl,
 	aof_update_response__free_unpacked(update_resp, NULL);
 
 	return 1;
+}
+
+static void client_hw_cleanup(struct thread_data *td)
+{
+	struct librpma_fio_client_data *ccd = td->io_ops_data;
+	struct client_data_hw *cd;
+	int ret;
+
+	if (ccd == NULL)
+		return;
+
+	cd = ccd->client_data;
+	if (cd == NULL) {
+		librpma_fio_client_cleanup(td);
+		return;
+	}
+
+	/* deregister the AOF pointer memory */
+	if ((ret = rpma_mr_dereg(&cd->aof_ptr_mr)))
+		librpma_td_verror(td, ret, "rpma_mr_dereg");
+
+	/* free the AOF pointer's memory */
+	free(cd->aof_ptr);
+
+	free(ccd->client_data);
+
+	librpma_fio_client_cleanup(td);
 }
 
 static int client_hw_io_append(struct thread_data *td,
