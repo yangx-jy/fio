@@ -115,7 +115,7 @@ static int client_init(struct thread_data *td)
 		td->io_ops->cleanup = client_sw_cleanup;
 
 		librpma_td_log(td,
-			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_SW_HELP);
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_SW_HELP "\n");
 	} else { /* LIBRPMA_AOF_MODE_HW */
 		if ((ret = client_hw_init(td)))
 			return ret;
@@ -123,7 +123,7 @@ static int client_init(struct thread_data *td)
 		td->io_ops->cleanup = client_hw_cleanup;
 
 		librpma_td_log(td,
-			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP);
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP "\n");
 	}
 
 	return 0;
@@ -664,14 +664,14 @@ static int server_init(struct thread_data *td)
 		td->io_ops->cleanup = server_sw_cleanup;
 
 		librpma_td_log(td,
-			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_SW_HELP);
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_SW_HELP "\n");
 	} else { /* LIBRPMA_AOF_MODE_HW */
 		td->io_ops->open_file = server_hw_open_file;
 		td->io_ops->queue = server_hw_queue;
 		td->io_ops->cleanup = librpma_fio_server_cleanup;
 
 		librpma_td_log(td,
-			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP);
+			LIBRPMA_AOF_MODE_LNAME ": " LIBRPMA_AOF_MODE_HW_HELP "\n");
 	}
 
 	return 0;
