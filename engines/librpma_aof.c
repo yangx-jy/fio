@@ -1109,7 +1109,7 @@ FIO_STATIC struct ioengine_ops ioengine_server = {
 	.queue			= server_queue_temp, /* see the (*) notice below */
 	.invalidate		= librpma_fio_file_nop,
 	.cleanup		= NULL, /* see the (*) notice below */
-	.flags			= FIO_SYNCIO,
+	.flags			= FIO_SYNCIO | FIO_DISKLESSIO,
 	.options		= librpma_aof_options,
 	.option_struct_size	= sizeof(struct librpma_fio_options_values),
 
